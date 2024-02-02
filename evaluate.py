@@ -4,7 +4,7 @@ import pandas as pd
 import math
 import os
 from peft import PeftModel
-from transformers import LlamaForCausalLM, LlamaTokenizer, AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM 
+from transformers import LlamaForCausalLM, LlamaTokenizer, AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM,BitsAndBytesConfig
 from tqdm import tqdm
 from numpy import argmax
 import torch
@@ -15,6 +15,12 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
 
+nf4_config = BitsAndBytesConfig(
+   load_in_4bit=True,
+   bnb_4bit_quant_type="nf4",
+   bnb_4bit_use_double_quant=True,
+   bnb_4bit_compute_dtype=torch.bfloat16
+)
 
 def get_prompt(args):
     PROMPT = 'Ini adalah soal [SUBJECT] untuk [LEVEL]. Pilihlah salah satu jawaban yang dianggap benar!\n\n[INPUT]\n[OPTION]\n\nJawaban: '
@@ -53,11 +59,12 @@ def prepare_data(prompt):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--load_8bit", action='store_true')
+    parser.add_argument("--load_4bit", action='store_true')
     parser.add_argument("--share_gradio", action='store_true')
     parser.add_argument("--by_letter", action='store_true')
     parser.add_argument("--base_model", type=str, help="Path to pretrained model", required=True)
     parser.add_argument("--lora_weights", type=str, default="x")
-    parser.add_argument("--output_folder", type=str, default="output", required=True)
+    parser.add_argument("--output_folder", type=str, default="./output")
     args = parser.parse_args()
     return args
 
@@ -69,7 +76,7 @@ def main():
     tokenizer_class = LlamaTokenizer if 'llama' in args.base_model else AutoTokenizer
     model_class = LlamaForCausalLM if 'llama' in args.base_model else AutoModelForCausalLM
 
-    SAVE_FILE = '{args.output_folder}/result_{args.base_model.split("/")[-1]}_{args.by_letter}.csv'
+    SAVE_FILE = f'{args.output_folder}/result_{args.base_model.split("/")[-1]}_{args.by_letter}.csv'
     tokenizer = tokenizer_class.from_pretrained(args.base_model)
     
     if 'mt0' in args.base_model:
@@ -77,7 +84,17 @@ def main():
         from utils import predict_classification_mt0 as predict_classification
         from utils import predict_classification_mt0_by_letter as predict_classification_by_letter
     else:
-        model = model_class.from_pretrained(args.base_model, load_in_8bit=args.load_8bit, torch_dtype=torch.float16, trust_remote_code=True, device_map="auto")
+        if args.load_8bit and args.load_4bit:
+            load_in_8bit = False
+        else:
+            load_in_8bit = args.load_8bit
+        model = model_class.from_pretrained(args.base_model,
+                                            quantization_config=nf4_config if args.load_4bit else None,
+                                            load_in_8bit=load_in_8bit,
+                                            torch_dtype=torch.float16,
+                                            trust_remote_code=True, 
+                                            device_map="auto",)
+
         from utils import predict_classification_causal as predict_classification
         from utils import predict_classification_causal_by_letter as predict_classification_by_letter
     
@@ -88,7 +105,7 @@ def main():
             args.lora_weights,
             torch_dtype=torch.float16,
         )
-        SAVE_FILE = '{args.output_folder}/result_{args.lora_weight.split("/")[-1]}_{args.by_letter}.csv'
+        SAVE_FILE = f'{args.output_folder}/result_{args.base_model.split("/")[-1]}_{args.lora_weight.split("/")[-1]}_{args.by_letter}.csv'
 
     # unwind broken decapoda-research config
     if 'llama' in args.base_model:
@@ -97,8 +114,8 @@ def main():
         model.config.eos_token_id = 2
 
     model.eval()
-    if torch.__version__ >= "2" and sys.platform != "win32":
-        model = torch.compile(model)
+    #if torch.__version__ >= "2" and sys.platform != "win32":
+    #    model = torch.compile(model)
     
     
     prompt = get_prompt(args)

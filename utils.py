@@ -33,7 +33,7 @@ def predict_classification_causal_by_letter(model, tokenizer, input_text, labels
     choices = ['A', 'B', 'C', 'D', 'E'][:len(labels)]
     choice_ids = [tokenizer.encode(choice)[-1] for choice in choices]
     with torch.no_grad():
-        inputs = tokenizer(input_text, return_tensors="pt")
+        inputs = tokenizer(input_text, return_tensors="pt").to(device)
         input_ids = inputs["input_ids"].to(device)
         if model.config.model_type == 'falcon':
             inputs.pop("token_type_ids")
