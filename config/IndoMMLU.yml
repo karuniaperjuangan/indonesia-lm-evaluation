@@ -1,0 +1,9 @@
+prompt: "Ini adalah soal [SUBJECT] untuk [LEVEL]. Pilihlah salah satu jawaban yang dianggap benar!\n\n[INPUT]\n[OPTION]\n\nJawaban: "
+options:
+  - "A"
+  - "B"
+  - "C"
+  - "D"
+  - "E"
+data_path: "./data/indoMMLU-Processed.csv"
+label_column: "[LABEL]"

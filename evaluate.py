@@ -9,7 +9,8 @@ from tqdm import tqdm
 from numpy import argmax
 import torch
 from sklearn.metrics import accuracy_score
-
+import yaml
+import re
 if torch.cuda.is_available():
     device = "cuda"
 else:
@@ -55,6 +56,27 @@ def prepare_data(prompt):
         outputs_options.append(row['jawaban'].split('\n'))
     return inputs, outputs, outputs_options
 
+def prepare_data_from_yaml(yaml_path):
+    with open(yaml_path) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    data = pd.read_csv(config['data_path'])
+    inputs = []
+    labels = []
+    outputs_options = []
+    template_prompt = config['prompt']
+    # find all [KEY] in prompt
+    keys = re.findall(r'(\[[A-Z]+\])', template_prompt)
+    for idx, row in data.iterrows():
+        prompt = template_prompt
+        for key in keys:
+            prompt = prompt.replace(key, row[key])
+        inputs.append(prompt)
+        labels.append(row[config['label_column']])
+        outputs_options.append(config['options'])
+    return inputs, labels, outputs_options
+
+        
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -64,6 +86,7 @@ def parse_args():
     parser.add_argument("--by_letter", action='store_true')
     parser.add_argument("--base_model", type=str, help="Path to pretrained model", required=True)
     parser.add_argument("--lora_weights", type=str, default="x")
+    parser.add_argument("--config_path", type=str)
     parser.add_argument("--output_folder", type=str, default="./output")
     args = parser.parse_args()
     return args
@@ -97,6 +120,7 @@ def main():
 
         from utils import predict_classification_causal as predict_classification
         from utils import predict_classification_causal_by_letter as predict_classification_by_letter
+    from utils import predict_classification_causal_by_letter_new as predict_classification_by_letter_new
     
     # Load adapter if we use adapter
     if args.lora_weights != "x":
@@ -118,11 +142,14 @@ def main():
     #    model = torch.compile(model)
     
     
-    prompt = get_prompt(args)
-    inputs, golds, outputs_options = prepare_data(prompt)
+    inputs, labels, outputs_options = prepare_data_from_yaml(args.config_path)
     preds = []
     probs = []
     for idx in tqdm(range(len(inputs))):
+        prob, pred = predict_classification_by_letter_new(model, tokenizer, inputs[idx], outputs_options[idx], device)
+        preds.append(pred)
+        probs.append(prob)
+        """
         if not args.by_letter:
             out = predict_classification(model, tokenizer, inputs[idx], outputs_options[idx], device)
             prob = [o.cpu().detach().item() for o in out]
@@ -133,10 +160,12 @@ def main():
             conf, pred = predict_classification_by_letter(model, tokenizer, inputs[idx], outputs_options[idx], device)
             probs.append(conf)
             preds.append(pred)
-
+        """
+    acc = accuracy_score(labels, preds)
+    print(f"Accuracy: {acc}")
     output_df = pd.DataFrame()
     output_df['input'] = inputs
-    output_df['golds'] = golds
+    output_df['label'] = labels
     output_df['options'] = outputs_options
     output_df['preds'] = preds
     output_df['probs'] = probs

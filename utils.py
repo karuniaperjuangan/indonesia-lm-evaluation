@@ -44,6 +44,21 @@ def predict_classification_causal_by_letter(model, tokenizer, input_text, labels
         pred = {0: "A", 1: "B", 2: "C", 3: "D", 4: "E"}[np.argmax(choice_logits[0])]
     return conf, pred
 
+def predict_classification_causal_by_letter_new(model, tokenizer, input_text, options, device):
+    #choices = ['A', 'B', 'C', 'D', 'E'][:len(labels)]
+    #print(choices)
+    option_ids = [tokenizer.encode(option)[-1] for option in options]
+    with torch.no_grad():
+        inputs = tokenizer(input_text, return_tensors="pt").to(device)
+        input_ids = inputs["input_ids"].to(device)
+        if model.config.model_type == 'falcon':
+            inputs.pop("token_type_ids")
+        outputs = model(**inputs, labels=input_ids)
+        last_token_logits = outputs.logits[:, -1, :]
+        choice_logits = last_token_logits[:, option_ids].detach().cpu().numpy()
+        conf = softmax(choice_logits[0])
+        pred = dict(enumerate(options))[np.argmax(choice_logits[0])]
+    return conf, pred
 
 @torch.no_grad()
 def get_logprobs_mt0(model, tokenizer, prompt, device, label_ids=None, label_attn=None):
