@@ -7,3 +7,4 @@ options:
   - "E"
 data_path: "./data/indoMMLU-Processed.csv"
 label_column: "[LABEL]"
+num_shot: 2

@@ -7,6 +7,7 @@ from peft import PeftModel
 from transformers import LlamaForCausalLM, LlamaTokenizer, AutoTokenizer, AutoModelForCausalLM, AutoModelForSeq2SeqLM,BitsAndBytesConfig
 from tqdm import tqdm
 from numpy import argmax
+import numpy as np
 import torch
 from sklearn.metrics import accuracy_score
 import yaml
@@ -23,38 +24,6 @@ nf4_config = BitsAndBytesConfig(
    bnb_4bit_compute_dtype=torch.bfloat16
 )
 
-def get_prompt(args):
-    PROMPT = 'Ini adalah soal [SUBJECT] untuk [LEVEL]. Pilihlah salah satu jawaban yang dianggap benar!\n\n[INPUT]\n[OPTION]\n\nJawaban: '
-    if args.lora_weights != "x":
-        PROMPT = '### Input:\nIni adalah soal [SUBJECT] untuk [LEVEL]. Pilihlah salah satu jawaban yang dianggap benar!\n\n[INPUT]\n[OPTION]\n\nJawaban: ### Output:\n'
-    return PROMPT
-
-
-def prepare_data(prompt):
-    inputs = []
-    outputs = []
-    outputs_options = []
-    key2id = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4}
-    data = pd.read_csv('data/indoMMLU.csv')
-    for idx, row in data.iterrows():
-        if row['level'] == 'Seleksi PTN':
-            level = 'seleksi masuk universitas'
-        else:
-            try:
-                level = f"{math.trunc(float(row['kelas']))} {row['level']}"
-            except:
-                level = f"{row['kelas']} {row['level']}"
-
-        inputs.append(
-            prompt.replace('[SUBJECT]', row['subject']).\
-                   replace('[LEVEL]', level).\
-                   replace('[INPUT]', row['soal']).\
-                   replace('[OPTION]',row['jawaban'])
-        )
-        idx_label = key2id[row['kunci']]
-        outputs.append(idx_label)
-        outputs_options.append(row['jawaban'].split('\n'))
-    return inputs, outputs, outputs_options
 
 def prepare_data_from_yaml(yaml_path):
     with open(yaml_path) as f:
@@ -73,9 +42,15 @@ def prepare_data_from_yaml(yaml_path):
         inputs.append(prompt)
         labels.append(row[config['label_column']])
         outputs_options.append(config['options'])
+    if config['num_shot'] > 0:
+        example_idxs = np.random.default_rng(seed=456368).integers(0, len(inputs), size=config['num_shot'])
+        shot_examples = []
+        for idx in range(config['num_shot']):
+            shot_examples.append(inputs[example_idxs[idx]] + labels[example_idxs[idx]])
+        shot_examples = "\n\n".join(shot_examples) + "\n\n"
+        for idx in range(len(inputs)):
+            inputs[idx] = shot_examples + inputs[idx]
     return inputs, labels, outputs_options
-
-        
 
 
 def parse_args():
