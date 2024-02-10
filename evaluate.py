@@ -25,7 +25,7 @@ nf4_config = BitsAndBytesConfig(
 )
 
 
-def prepare_data_from_yaml(yaml_path):
+def prepare_data_from_yaml(yaml_path, batch_size=1):
     with open(yaml_path) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     data = pd.read_csv(config['data_path'])
@@ -50,6 +50,11 @@ def prepare_data_from_yaml(yaml_path):
         shot_examples = "\n\n".join(shot_examples) + "\n\n"
         for idx in range(len(inputs)):
             inputs[idx] = shot_examples + inputs[idx]
+    #batching
+    inputs = [inputs[i:i+batch_size] for i in range(0, len(inputs), batch_size)]
+    labels = [labels[i:i+batch_size] for i in range(0, len(labels), batch_size)]
+    outputs_options = [outputs_options[i:i+batch_size] for i in range(0, len(outputs_options), batch_size)]
+    print(f"Number of batches: {len(inputs)}")
     return inputs, labels, outputs_options
 
 
@@ -63,6 +68,7 @@ def parse_args():
     parser.add_argument("--lora_weights", type=str, default="x")
     parser.add_argument("--config_path", type=str)
     parser.add_argument("--output_folder", type=str, default="./output")
+    parser.add_argument("--batch_size", type=int, default=1)
     args = parser.parse_args()
     return args
 
@@ -76,7 +82,10 @@ def main():
 
     SAVE_FILE = f'{args.output_folder}/result_{args.base_model.split("/")[-1]}_{args.by_letter}.csv'
     tokenizer = tokenizer_class.from_pretrained(args.base_model)
-    
+    tokenizer.padding_side = "left" # padding must be on the beginning since we predict from the end
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     if 'mt0' in args.base_model:
         model = AutoModelForSeq2SeqLM.from_pretrained(args.base_model, device_map="auto", load_in_8bit="xxl" in args.base_model)
         from utils import predict_classification_mt0 as predict_classification
@@ -117,7 +126,7 @@ def main():
     #    model = torch.compile(model)
     
     
-    inputs, labels, outputs_options = prepare_data_from_yaml(args.config_path)
+    inputs, labels, outputs_options = prepare_data_from_yaml(args.config_path, batch_size=args.batch_size)
     preds = []
     probs = []
     for idx in tqdm(range(len(inputs))):
@@ -136,15 +145,18 @@ def main():
             probs.append(conf)
             preds.append(pred)
         """
-    acc = accuracy_score(labels, preds)
-    print(f"Accuracy: {acc}")
+    
     output_df = pd.DataFrame()
-    output_df['input'] = inputs
-    output_df['label'] = labels
-    output_df['options'] = outputs_options
-    output_df['preds'] = preds
-    output_df['probs'] = probs
+    # unpack the batches
+    output_df['input'] = [input for batch in inputs for input in batch]
+    output_df['label'] = [label for batch in labels for label in batch]
+    output_df['options'] = [option for batch in outputs_options for option in batch]
+    output_df['preds'] = [pred for batch in preds for pred in batch]
+    output_df['probs'] = [prob for batch in probs for prob in batch]
     output_df.to_csv(SAVE_FILE, index=False)
+
+    acc = accuracy_score([label for batch in labels for label in batch], [pred for batch in preds for pred in batch])
+    print(f"Accuracy: {acc}")
 
 if __name__ == "__main__":
     main()

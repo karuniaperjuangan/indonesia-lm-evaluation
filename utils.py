@@ -4,9 +4,9 @@ import numpy as np
 
 
 def softmax(x):
-    z = x - max(x)
+    z = x - np.max(x, axis=1)[:, np.newaxis]
     numerator = np.exp(z)
-    denominator = np.sum(numerator)
+    denominator = np.sum(numerator, axis=1)[:, np.newaxis]
     softmax = numerator/denominator
     return softmax
 
@@ -47,17 +47,19 @@ def predict_classification_causal_by_letter(model, tokenizer, input_text, labels
 def predict_classification_causal_by_letter_new(model, tokenizer, input_text, options, device):
     #choices = ['A', 'B', 'C', 'D', 'E'][:len(labels)]
     #print(choices)
-    option_ids = [tokenizer.encode(option)[-1] for option in options]
+    option_ids = [tokenizer.encode(option)[-1] for option in options[0]]
     with torch.no_grad():
-        inputs = tokenizer(input_text, return_tensors="pt").to(device)
+        inputs = tokenizer(input_text, padding=True, return_tensors='pt').to(device)
         input_ids = inputs["input_ids"].to(device)
         if model.config.model_type == 'falcon':
             inputs.pop("token_type_ids")
         outputs = model(**inputs, labels=input_ids)
         last_token_logits = outputs.logits[:, -1, :]
         choice_logits = last_token_logits[:, option_ids].detach().cpu().numpy()
-        conf = softmax(choice_logits[0])
-        pred = dict(enumerate(options))[np.argmax(choice_logits[0])]
+        conf = softmax(choice_logits)
+        pred = []
+        for i in range(len(conf)):
+            pred.append(dict(enumerate(options[0]))[np.argmax(choice_logits[i])]) # decode the answer
     return conf, pred
 
 @torch.no_grad()
