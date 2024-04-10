@@ -1,6 +1,6 @@
 instruction: "Ini adalah soal berbentuk pilihan ganda. Pilihlah salah satu jawaban yang dianggap benar dengan memberikan huruf yang sesuai dengan jawaban!"
 prompt: "\n[INPUT]\n[OPTION]\n\nJawaban: "
-type_options: "fixed_choice"
+type_options: "dynamic_choice"
 options:
   - "A"
   - "B"
